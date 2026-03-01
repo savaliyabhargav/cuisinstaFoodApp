@@ -1,35 +1,51 @@
-from mock_data import REELS, RESTAURANTS, USER_INTERESTS, SEEN_REELS, USER_LIKES
+from firebase import db
 import random
 
-def build_reel_object(reel_id: str, user_id: str):
-    reel = REELS[reel_id]
-    restaurant = RESTAURANTS[reel["restaurant_id"]]
-    did_i_like = reel_id in USER_LIKES.get(user_id, set())
+def build_reel_object(reel_id: str, reel_data: dict, user_id: str, user_likes: list):
+    restaurant_doc = db.collection("restaurants").document(reel_data["restaurant_id"]).get()
+    restaurant = restaurant_doc.to_dict()
 
     return {
         "reel_id": reel_id,
-        "category": reel["category"],
-        "like_count": reel["like_count"],
-        "did_i_like": did_i_like,
+        "category": reel_data["category"],
+        "like_count": reel_data["like_count"],
+        "did_i_like": reel_id in user_likes,
         "restaurant": {
-            "restaurant_id": reel["restaurant_id"],
+            "restaurant_id": reel_data["restaurant_id"],
             "name": restaurant["name"],
             "profile_image": restaurant["profile_image"]
         }
     }
 
 def get_feed(user_id: str, count: int):
-    all_reel_ids = list(REELS.keys())
+    # fetch all reels from firestore
+    all_reels_docs = db.collection("reels").stream()
+    all_reels = {doc.id: doc.to_dict() for doc in all_reels_docs}
+    all_reel_ids = list(all_reels.keys())
+
+    # fetch user from firestore
+    user_doc = db.collection("users").document(user_id).get()
+
+    # fetch seen reels
+    seen_doc = db.collection("seen_reels").document(user_id).get()
+    seen_reels = set(seen_doc.to_dict().get("seen", [])) if seen_doc.exists else set()
+
+    # fetch user likes
+    likes_doc = db.collection("user_likes").document(user_id).get()
+    user_likes = likes_doc.to_dict().get("liked_reels", []) if likes_doc.exists else []
 
     # --- new user ---
-    if user_id not in USER_INTERESTS:
-        USER_INTERESTS[user_id] = None
-        SEEN_REELS[user_id] = set()
+    if not user_doc.exists:
+        db.collection("users").document(user_id).set({
+            "interests": None,
+            "category_likes": {}
+        })
 
         sampled = random.sample(all_reel_ids, min(20, len(all_reel_ids)))
-        SEEN_REELS[user_id].update(sampled)
 
-        feed = [build_reel_object(r, user_id) for r in sampled]
+        db.collection("seen_reels").document(user_id).set({"seen": sampled})
+
+        feed = [build_reel_object(r, all_reels[r], user_id, user_likes) for r in sampled]
 
         return {
             "user_id": user_id,
@@ -39,19 +55,17 @@ def get_feed(user_id: str, count: int):
         }
 
     # --- existing user ---
-    interests = USER_INTERESTS[user_id]
-
-    if user_id not in SEEN_REELS:
-        SEEN_REELS[user_id] = set()
+    user_data = user_doc.to_dict()
+    interests = user_data.get("interests")
 
     # get interest matched reels
     if interests:
-        matched_reels = [r for r, data in REELS.items() if data["category"] in interests]
+        matched_reels = [r for r, data in all_reels.items() if data["category"] in interests]
     else:
         matched_reels = all_reel_ids
 
-    # unseen interest matched reels
-    unseen_matched = [r for r in matched_reels if r not in SEEN_REELS[user_id]]
+    # unseen matched reels
+    unseen_matched = [r for r in matched_reels if r not in seen_reels]
 
     feed_ids = []
     is_randomized = False
@@ -60,28 +74,29 @@ def get_feed(user_id: str, count: int):
     random.shuffle(unseen_matched)
     feed_ids.extend(unseen_matched[:count])
 
-    # if not enough, top up from random unseen
+    # top up from random unseen if not enough
     if len(feed_ids) < count:
         is_randomized = True
         unseen_random = [
             r for r in all_reel_ids
-            if r not in SEEN_REELS[user_id] and r not in feed_ids
+            if r not in seen_reels and r not in feed_ids
         ]
         random.shuffle(unseen_random)
         feed_ids.extend(unseen_random[:count - len(feed_ids)])
 
-    # if still not enough, reset seen and fill rest
+    # if still not enough reset seen and fill rest
     if len(feed_ids) < count:
-        SEEN_REELS[user_id] = set()
+        seen_reels = set()
         is_randomized = True
         remaining = [r for r in all_reel_ids if r not in feed_ids]
         random.shuffle(remaining)
         feed_ids.extend(remaining[:count - len(feed_ids)])
 
-    # mark as seen
-    SEEN_REELS[user_id].update(feed_ids)
+    # update seen reels in firestore
+    updated_seen = list(seen_reels.union(set(feed_ids)))
+    db.collection("seen_reels").document(user_id).set({"seen": updated_seen})
 
-    feed = [build_reel_object(r, user_id) for r in feed_ids]
+    feed = [build_reel_object(r, all_reels[r], user_id, user_likes) for r in feed_ids]
 
     return {
         "user_id": user_id,
