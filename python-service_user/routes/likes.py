@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from services.like_service import toggle_like
-from mock_data import REELS, USER_INTERESTS
+from mongodb import db
 
 router = APIRouter()
 
@@ -11,9 +11,9 @@ class LikeRequest(BaseModel):
 
 @router.post("/like")
 def like_endpoint(req: LikeRequest):
-    if req.reel_id not in REELS:
+    if not db.reels.find_one({"_id": req.reel_id}):
         raise HTTPException(status_code=404, detail=f"Reel '{req.reel_id}' not found")
-    if req.user_id not in USER_INTERESTS:
-        raise HTTPException(status_code=404, detail=f"User '{req.user_id}' not found, call /feed first to register user")
+    if not db.users.find_one({"_id": req.user_id}):
+        raise HTTPException(status_code=404, detail=f"User '{req.user_id}' not found, call /feed first to register")
 
     return toggle_like(req.user_id, req.reel_id)

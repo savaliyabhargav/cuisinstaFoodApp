@@ -145,9 +145,10 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    marginTop: '-50px',
+    marginTop: '-45px',
     paddingBottom: '24px',
     borderBottom: '1px solid #1f1f1f',
+    paddingTop: '0px',
   },
   avatar: {
     width: '90px',
@@ -159,6 +160,9 @@ const styles = {
     justifyContent: 'center',
     border: '4px solid #0a0a0a',
     marginBottom: '12px',
+    flexShrink: 0,
+    zIndex: 10,
+    position: 'relative',
   },
   avatarText: {
     color: '#fff',

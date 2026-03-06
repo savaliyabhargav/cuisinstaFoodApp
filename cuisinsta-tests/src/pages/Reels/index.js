@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getFeed, toggleLike } from '../../services/api';
+import { getFeed, toggleLike, recordWatchTime } from '../../services/api';
 import ReelCard from '../../components/ReelCard';
 
 const USER_ID = 'user_001';
@@ -10,6 +10,8 @@ function Reels() {
   const [error, setError] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
   const containerRef = useRef(null);
+  const watchStartTime = useRef(null);
+  const currentReelIndex = useRef(0);
 
   useEffect(() => {
     loadFeed();
@@ -19,18 +21,56 @@ function Reels() {
     const container = containerRef.current;
     if (!container) return;
 
+    // Start watch timer when feed loads
+    watchStartTime.current = Date.now();
+
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
+      // Calculate which reel is currently visible
+      const newIndex = Math.round(scrollTop / clientHeight);
+
+      // If user scrolled to a new reel
+      if (newIndex !== currentReelIndex.current) {
+
+        // Record watch time for the reel they just left
+        const secondsWatched = (Date.now() - watchStartTime.current) / 1000;
+        const watchedReel = reels[currentReelIndex.current];
+
+        if (watchedReel && secondsWatched > 0.5) {
+          recordWatchTime(USER_ID, watchedReel.category, secondsWatched)
+            .catch((err) => console.error('Watch time error:', err));
+        }
+
+        // Reset timer for new reel
+        watchStartTime.current = Date.now();
+        currentReelIndex.current = newIndex;
+      }
+
+      // Load more when 2 reels away from end
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
       if (distanceFromBottom < clientHeight * 2 && !isFetching) {
         loadMore();
       }
     };
 
     container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
   }, [isFetching, reels]);
+
+  // Record watch time when user leaves the reels page
+  useEffect(() => {
+    return () => {
+      const secondsWatched = (Date.now() - watchStartTime.current) / 1000;
+      const watchedReel = reels[currentReelIndex.current];
+      if (watchedReel && secondsWatched > 0.5) {
+        recordWatchTime(USER_ID, watchedReel.category, secondsWatched)
+          .catch((err) => console.error('Watch time error:', err));
+      }
+    };
+  }, [reels]);
 
   const loadFeed = async () => {
     try {

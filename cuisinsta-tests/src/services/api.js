@@ -16,3 +16,12 @@ export const toggleLike = async (userId, reelId) => {
   });
   return response.data;
 };
+
+export const recordWatchTime = async (userId, category, secondsWatched) => {
+  const response = await axios.post(`${BASE_URL}/watch-time`, {
+    user_id: userId,
+    category: category,
+    seconds_watched: secondsWatched,
+  });
+  return response.data;
+};

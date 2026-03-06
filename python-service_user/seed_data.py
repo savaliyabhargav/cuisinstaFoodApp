@@ -1,12 +1,12 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
+import os
+from pymongo import MongoClient
+from dotenv import load_dotenv
 
-cred = credentials.Certificate("serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
+load_dotenv()
 
-db = firestore.client()
+client = MongoClient(os.getenv("MONGO_URI"))
+db = client[os.getenv("MONGO_DB_NAME")]
 
-# ---- Restaurants ----
 RESTAURANTS = {
     "rest_001": {"name": "Pizza Palace",        "profile_image": "https://example.com/rest_001.jpg"},
     "rest_002": {"name": "Pasta Paradise",      "profile_image": "https://example.com/rest_002.jpg"},
@@ -25,7 +25,6 @@ RESTAURANTS = {
     "rest_015": {"name": "Waffle World",        "profile_image": "https://example.com/rest_015.jpg"},
 }
 
-# ---- Reels ----
 REELS = {
     "reel_001": {"category": "pizza",          "restaurant_id": "rest_001", "like_count": 120},
     "reel_002": {"category": "pizza",          "restaurant_id": "rest_001", "like_count": 95},
@@ -79,7 +78,6 @@ REELS = {
     "reel_050": {"category": "kebab",          "restaurant_id": "rest_014", "like_count": 290},
 }
 
-# ---- Users ----
 USER_INTERESTS = {
     "user_001": ["pizza", "pasta", "burgers", "sushi", "tacos"],
     "user_002": ["biryani", "curry", "dosa", "tandoori", "samosa"],
@@ -110,25 +108,33 @@ USER_INTERESTS = {
 
 
 def seed():
+    print("Clearing old data...")
+    db.restaurants.delete_many({})
+    db.reels.delete_many({})
+    db.users.delete_many({})
+    db.seen_reels.delete_many({})
+    db.user_likes.delete_many({})
+
     print("Seeding restaurants...")
-    for rest_id, data in RESTAURANTS.items():
-        db.collection("restaurants").document(rest_id).set(data)
+    db.restaurants.insert_many([
+        {"_id": rid, **data} for rid, data in RESTAURANTS.items()
+    ])
     print(f"  ✅ {len(RESTAURANTS)} restaurants uploaded")
 
     print("Seeding reels...")
-    for reel_id, data in REELS.items():
-        db.collection("reels").document(reel_id).set(data)
+    db.reels.insert_many([
+        {"_id": rid, **data} for rid, data in REELS.items()
+    ])
     print(f"  ✅ {len(REELS)} reels uploaded")
 
     print("Seeding users...")
-    for user_id, interests in USER_INTERESTS.items():
-        db.collection("users").document(user_id).set({
-            "interests": interests,
-            "category_likes": {}
-        })
+    db.users.insert_many([
+        {"_id": uid, "interests": interests, "category_likes": {}}
+        for uid, interests in USER_INTERESTS.items()
+    ])
     print(f"  ✅ {len(USER_INTERESTS)} users uploaded")
 
-    print("\n🎉 All data seeded successfully!")
+    print("\n🎉 All data seeded to MongoDB successfully!")
 
 
 if __name__ == "__main__":
